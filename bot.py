@@ -13,8 +13,8 @@ import re
 logging.basicConfig(level=logging.INFO)
 
 # Avoid hardcoding credentials directly in the script
-os.environ["email"] = "aryanrajesh6702@gmail.com"
-os.environ["password"] = "Intrusion@7"
+os.environ["email"] = "your-email"
+os.environ["password"] = "your-password"
 
 class GitHubBot:
     def __init__(self):
