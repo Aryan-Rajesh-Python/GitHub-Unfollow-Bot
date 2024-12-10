@@ -8,13 +8,20 @@ import logging
 import os
 from bs4 import BeautifulSoup
 import re
+import math
 
-# Setting up logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("github_bot.log"),  # Log to file
+        logging.StreamHandler()                # Log to console
+    ]
+)
 
-# Avoid hardcoding credentials directly in the script
-os.environ["email"] = "your-email"
-os.environ["password"] = "your-password"
+os.environ["email"] = "aryanrajesh6702@gmail.com"
+os.environ["password"] = "Intrusion@7"
 
 class GitHubBot:
     def __init__(self):
@@ -24,87 +31,88 @@ class GitHubBot:
         self.following = []
 
     def start_driver(self):
+        """Starts the WebDriver with optimized settings."""
         chrome_options = webdriver.ChromeOptions()
         chrome_options.add_experimental_option("detach", True)
+        chrome_options.add_argument("--headless=new")  # Run browser in headless mode
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--no-sandbox")
         self.driver = webdriver.Chrome(options=chrome_options)
-        self.driver.get(url="https://github.com/login")
+        self.driver.set_page_load_timeout(15)
+        self.driver.get("https://github.com/login")
 
     def login(self):
-        email = os.environ.get("email")
-        password = os.environ.get("password")
-        if not email or not password:
-            raise ValueError("Email and password are not set in environment variables.")
+        """Logs into GitHub."""
         logging.info("Logging in...")
-        email_input = self.driver.find_element(By.NAME, "login")
-        password_input = self.driver.find_element(By.NAME, "password")
-        email_input.send_keys(email)
-        password_input.send_keys(password)
-        password_input.send_keys(Keys.ENTER)
-        
-        # Wait for the page to load completely after login
-        WebDriverWait(self.driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, "//span[contains(text(),'Pull requests')]"))
-        )
-        logging.info("Login successful!")
-
-    def wait_for_element(self, xpath, timeout=10):
-        """Waits for an element to be visible and returns it."""
         try:
-            element = WebDriverWait(self.driver, timeout).until(
-                EC.visibility_of_element_located((By.XPATH, xpath))
-            )
-            return element
-        except Exception as e:
-            logging.error(f"Error finding element: {e}")
-            return None
-
-    def get_users_from_page(self, account: str, page_count: int, tab: str):
-        users = []
-        for number in range(1, page_count + 1):
-            page = f"https://github.com/{account}?page={number}&tab={tab}"
-            self.driver.get(page)
+            email = os.getenv("email")
+            password = os.getenv("password")
+            if not email or not password:
+                raise ValueError("Email or password not set in environment variables.")
             
-            # Wait until the users' section is fully loaded
+            email_input = self.driver.find_element(By.NAME, "login")
+            password_input = self.driver.find_element(By.NAME, "password")
+            email_input.send_keys(email)
+            password_input.send_keys(password)
+            password_input.send_keys(Keys.ENTER)
+
+            # Wait for the main page to load
             WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//span[@class='Link--secondary']"))
+                EC.presence_of_element_located((By.XPATH, "//span[contains(text(),'Pull requests')]"))
             )
-            html_content = self.driver.page_source
-            soup = BeautifulSoup(html_content, 'lxml')
-            users += [span.text for span in soup.find_all('span', class_='Link--secondary')]
+            logging.info("Login successful!")
+        except Exception as e:
+            logging.error(f"Login failed: {e}")
+            self.driver.quit()
+
+    def fetch_user_list(self, account, page_count, tab):
+        """Fetches users from the specified tab."""
+        users = []
+        for page in range(1, page_count + 1):
+            try:
+                logging.info(f"Fetching {tab} data: Page {page}/{page_count}")
+                self.driver.get(f"https://github.com/{account}?page={page}&tab={tab}")
+                
+                # Wait until the user list is loaded
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_all_elements_located((By.XPATH, "//span[@class='Link--secondary']"))
+                )
+
+                # Parse the page content
+                soup = BeautifulSoup(self.driver.page_source, 'html.parser')
+                users_on_page = [span.text.strip() for span in soup.find_all('span', class_='Link--secondary')]
+                users.extend(users_on_page)
+            except Exception as e:
+                logging.warning(f"Failed to fetch {tab} data from page {page}: {e}")
+                continue
+            finally:
+                time.sleep(1)  # Small delay to avoid rate-limiting
         return users
-    
-    def find_followers(self):
-        website = f"https://github.com/Aryan-Rajesh-Python"
-        self.driver.get(website)
-        html_content = self.driver.page_source
-        soup = BeautifulSoup(html_content, 'lxml')
-        links = soup.find_all("a", href=True)
-        link = [link.text for link in links if "followers" in link['href']]
-        link = re.findall(r'\d+', link[0])[0]
-        page_count = int((float(link) // 50) + 1)
-        self.followers = self.get_users_from_page("Aryan-Rajesh-Python", page_count, "followers")
 
-    def find_following(self):
-        website = f"https://github.com/Aryan-Rajesh-Python"
-        self.driver.get(website)
-        html_content = self.driver.page_source
-        soup = BeautifulSoup(html_content, 'lxml')
-        links = soup.find_all("a", href=True)
-        link = [link.text for link in links if "following" in link['href']]
-        link = re.findall(r'\d+', link[0])[0]
-        page_count = int((float(link) // 50) + 1)
-        self.following = self.get_users_from_page("Aryan-Rajesh-Python", page_count, "following")
+    def get_followers_following(self):
+        """Fetches followers and following lists."""
+        try:
+            self.followers = self.fetch_user_list("Aryan-Rajesh-Python", 2, "followers")
+            self.following = self.fetch_user_list("Aryan-Rajesh-Python", 3, "following")
+            logging.info(f"Followers fetched: {len(self.followers)}")
+            logging.info(f"Following fetched: {len(self.following)}")
+        except Exception as e:
+            logging.error(f"Error fetching followers/following: {e}")
 
-    def check_accounts(self):
-        self.find_followers()
-        self.find_following()
-        logging.info(f"Followers: {len(self.followers)}")
-        logging.info(f"Following: {len(self.following)}")
+    def check_non_following(self):
+        """Identifies users not following back."""
+        self.get_followers_following()
         non_following = list(set(self.following) - set(self.followers))
-        logging.info(f"Users not following you back: {len(non_following)}")
-        logging.info(f"These are the users you can manually unfollow: {non_following}")
+        logging.info(f"Users not following you back ({len(non_following)}): {', '.join(non_following)}")
+        print(f"\nUsers not following you back: {len(non_following)}")
+        print(f"Manual unfollow recommended for:\n{', '.join(non_following)}\n")
 
 if __name__ == "__main__":
-    github_bot = GitHubBot()
-    github_bot.check_accounts()
-    github_bot.driver.quit()  # Ensure the browser closes
+    try:
+        bot = GitHubBot()
+        bot.check_non_following()
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    finally:
+        if hasattr(bot, 'driver'):
+            bot.driver.quit()
